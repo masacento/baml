@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::Result;
+use ariadne::Report;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEventKind};
 use ratatui::{Terminal, backend::CrosstermBackend};
 
@@ -16,8 +17,10 @@ use crate::{
     ui,
     watcher::FileWatcher,
 };
+use baml_diagnostics::compiler_error::CompilerError;
+use baml_thir::Ty;
 
-pub(crate) struct App {
+pub(crate) struct App<'db> {
     file_path: PathBuf,
     /// Which tab is shown in the TUI.
     current_phase: CompilerPhase,
@@ -37,9 +40,11 @@ pub(crate) struct App {
     last_compiled_files: HashMap<PathBuf, String>,
     /// Whether we are in THIR interactive sub-mode (cursor navigation active)
     thir_interactive_active: bool,
+    current_errors: Vec<CompilerError<Ty<'db>>>,
+    snapshot_errors: Vec<CompilerError<Ty<'db>>>,
 }
 
-impl App {
+impl<'a> App<'a> {
     pub(crate) fn new(path: PathBuf) -> Result<Self> {
         let watcher = FileWatcher::new(&path)?;
         let mut compiler = CompilerRunner::new(&path);
@@ -65,6 +70,8 @@ impl App {
             visualization_mode: VisualizationMode::Diff, // Start in Diff mode
             last_compiled_files: initial_files,
             thir_interactive_active: false,
+            current_errors: Vec::new(),
+            snapshot_errors: Vec::new(),
         })
     }
 

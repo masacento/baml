@@ -197,6 +197,7 @@ fn generate_project_tests(file: &mut File, project: &TestProject) -> std::io::Re
     writeln!(file, "    use baml_db::baml_thir;")?;
     writeln!(file, "    use baml_db::baml_codegen;")?;
     writeln!(file, "    use baml_db::Diagnostic;")?;
+    writeln!(file, "    use baml_thir::pretty::short_display;")?;
     writeln!(
         file,
         "    use baml_diagnostics::render_diagnostic_with_color;"
@@ -557,7 +558,7 @@ fn generate_thir_test(file: &mut File, project: &TestProject) -> std::io::Result
     )?;
     writeln!(
         file,
-        "                            writeln!(output, \"      - {{}}\", error.message()).unwrap();"
+        "                            writeln!(output, \"      - {{}}\", short_display(error)).unwrap();"
     )?;
     writeln!(file, "                        }}")?;
     writeln!(file, "                    }}")?;

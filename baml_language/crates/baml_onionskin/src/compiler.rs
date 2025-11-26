@@ -8,7 +8,6 @@ use std::{
 };
 
 use anyhow::Result;
-use baml_base::Diagnostic;
 use baml_db::{
     RootDatabase, SourceFile, baml_codegen, baml_hir, baml_lexer, baml_parser, baml_syntax,
     baml_thir, baml_workspace, function_body, function_signature,

@@ -5,7 +5,8 @@
 
 use std::fmt::Write;
 
-use baml_base::Diagnostic;
+use super::Ty;
+use baml_diagnostics::compiler_error::{ColorMode, CompilerError, TypeError, render_error};
 use baml_hir::{
     BinaryOp, Expr, ExprBody, ExprId, FunctionBody, FunctionSignature, Literal, LlmBody, Pattern,
     Stmt, StmtId, UnaryOp,
@@ -112,7 +113,7 @@ impl<'a, 'db> TreeRenderer<'a, 'db> {
         if !result.errors.is_empty() {
             writeln!(self.output, "  Errors:").ok();
             for error in &result.errors {
-                writeln!(self.output, "    • {}", error.message()).ok();
+                writeln!(self.output, "    • {}", short_display(error)).ok();
             }
         }
     }
@@ -497,10 +498,22 @@ fn unary_op_to_str(op: UnaryOp) -> &'static str {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Tests would go here, but they require a full HIR setup
-    // The snapshot tests in baml_tests will exercise this code
+pub fn short_display(error: &TypeError<Ty<'_>>) -> String {
+    match error {
+        TypeError::TypeMismatch {
+            expected, found, ..
+        } => format!("Expected {expected}. Found {found}"),
+        TypeError::UnknownType { name, .. } => format!("Unknown type {name}"),
+        TypeError::UnknownVariable { name, .. } => format!("Unknown type {name}"),
+        TypeError::InvalidBinaryOp { op, lhs, rhs, .. } => {
+            format!("Invalid op {op} for {lhs} and {rhs}")
+        }
+        TypeError::InvalidUnaryOp { op, operand, .. } => format!("Invalid op {op} for {operand}"),
+        TypeError::ArgumentCountMismatch {
+            expected, found, ..
+        } => format!("Expected {expected} args, found {found}"),
+        TypeError::NotCallable { ty, .. } => format!("{ty} is not callable"),
+        TypeError::NotIndexable { ty, .. } => format!("{ty} is not indexable"),
+        TypeError::NoSuchField { ty, field, .. } => format!("{ty} has no field {field}"),
+    }
 }
