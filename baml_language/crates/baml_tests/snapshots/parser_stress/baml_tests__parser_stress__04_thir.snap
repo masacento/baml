@@ -210,4 +210,6 @@ expression: output
   Function BodyTorture:
     Return: Void
     Errors:
-      - Type mismatch: expected bool, found void
+      - Invalid op Add for unknown and int
+      - Expected bool. Found void
+      - Invalid op Add for unknown and int

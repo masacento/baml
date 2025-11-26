@@ -6,7 +6,8 @@ pub use parse_error::ParseError;
 pub use type_error::TypeError;
 
 use ariadne::{Report, ReportKind};
-use baml_base::Span;
+use baml_base::{FileId, Span};
+use std::collections::HashMap;
 
 /// Every compiler error that can occur in the compiler.
 /// It is parameterized by several types that are owned by the different compiler phases,
@@ -54,3 +55,66 @@ const NOT_INDEXABLE: ErrorCode = ErrorCode(8);
 
 const UNEXPECTED_EOF: ErrorCode = ErrorCode(9);
 const UNEXPECTED_TOKEN: ErrorCode = ErrorCode(10);
+
+/// Render an ariadne Report to a String.
+///
+/// The `sources` map should contain the source text for each FileId referenced
+/// in the report's spans.
+pub fn render_report_to_string(
+    report: Report<'_, Span>,
+    sources: &HashMap<FileId, String>,
+) -> String {
+    let mut output = Vec::new();
+
+    // ariadne::sources expects types that implement AsRef<str>, so we pass String directly
+    let ariadne_sources: HashMap<FileId, String> = sources.clone();
+
+    // Use ariadne's sources helper which creates a cache from a HashMap
+    let mut cache = ariadne::sources(ariadne_sources);
+
+    report.write(&mut cache, &mut output).unwrap_or_else(|_| {
+        // If writing fails, provide a fallback
+        output.clear();
+        output.extend_from_slice(b"<error rendering diagnostic>");
+    });
+
+    String::from_utf8_lossy(&output).into_owned()
+}
+
+/// Convenience function to render a ParseError directly to a string.
+///
+/// This combines `render_error` and `render_report_to_string` for the common case
+/// of rendering parse errors.
+pub fn render_parse_error(
+    error: &ParseError,
+    sources: &HashMap<FileId, String>,
+    color: bool,
+) -> String {
+    let color_mode = if color {
+        ColorMode::Color
+    } else {
+        ColorMode::NoColor
+    };
+    let compiler_error: CompilerError<String> = CompilerError::ParseError(error.clone());
+    let report = render_error(color_mode, compiler_error);
+    render_report_to_string(report, sources)
+}
+
+/// Convenience function to render a TypeError directly to a string.
+///
+/// This combines `render_error` and `render_report_to_string` for the common case
+/// of rendering type errors. The type parameter `Ty` must implement `Display` and `Clone`.
+pub fn render_type_error<Ty: std::fmt::Display + Clone>(
+    error: &TypeError<Ty>,
+    sources: &HashMap<FileId, String>,
+    color: bool,
+) -> String {
+    let color_mode = if color {
+        ColorMode::Color
+    } else {
+        ColorMode::NoColor
+    };
+    let compiler_error: CompilerError<Ty> = CompilerError::TypeError(error.clone());
+    let report = render_error(color_mode, compiler_error);
+    render_report_to_string(report, sources)
+}

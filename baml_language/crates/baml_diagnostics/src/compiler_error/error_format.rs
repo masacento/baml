@@ -1,4 +1,4 @@
-use ariadne::ReportBuilder;
+use ariadne::{Label, ReportBuilder};
 
 use super::CompilerError;
 use super::*;
@@ -19,12 +19,12 @@ where
                 found,
                 span,
             } => simple_error(
-                format!("Unexpected token {found}. Expected {expected}"),
+                format!("Expected {expected}, found {found}"),
                 span,
                 UNEXPECTED_TOKEN,
             ),
             ParseError::UnexpectedEof { expected, span } => simple_error(
-                format!("Unexpected EOF. Expected {expected}"),
+                format!("Expected {expected}, found EOF"),
                 span,
                 UNEXPECTED_EOF,
             ),
@@ -38,15 +38,15 @@ where
                 found,
                 span,
             } => simple_error(
-                format!("Type mismatch: expected {expected}, found {found}"),
+                format!("Expected {expected}, found {found}"),
                 span,
                 TYPE_MISMATCH,
             ),
             TypeError::UnknownType { name, span } => {
-                simple_error(format!("Unknown type: {name}"), span, UNKNOWN_TYPE)
+                simple_error(format!("Unknown type {name}"), span, UNKNOWN_TYPE)
             }
             TypeError::UnknownVariable { name, span } => {
-                simple_error(format!("Unknown variable: {name}"), span, UNKNOWN_VARIABLE)
+                simple_error(format!("Unknown variable {name}"), span, UNKNOWN_VARIABLE)
             }
             TypeError::InvalidBinaryOp { op, lhs, rhs, span } => simple_error(
                 format!("Cannot apply operator '{op}' to types {lhs} and {rhs}"),
@@ -92,7 +92,9 @@ fn simple_error<'a>(
     code: ErrorCode,
 ) -> (ReportBuilder<'a, Span>, ErrorCode) {
     (
-        Report::build(ReportKind::Error, span).with_message(message),
+        Report::build(ReportKind::Error, span)
+            .with_message(&message)
+            .with_label(Label::new(span).with_message(message)),
         code,
     )
 }

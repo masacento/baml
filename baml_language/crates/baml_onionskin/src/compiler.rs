@@ -9,9 +9,10 @@ use std::{
 
 use anyhow::Result;
 use baml_db::{
-    RootDatabase, SourceFile, baml_codegen, baml_hir, baml_lexer, baml_parser, baml_syntax,
+    FileId, RootDatabase, SourceFile, baml_codegen, baml_hir, baml_lexer, baml_parser, baml_syntax,
     baml_thir, baml_workspace, function_body, function_signature,
 };
+use baml_diagnostics::{render_parse_error, render_type_error};
 use baml_hir::{Expr, ExprBody, ExprId, FunctionBody, ItemId, Pattern, Stmt, StmtId};
 use baml_syntax::{
     SyntaxElement, SyntaxNode, SyntaxToken, WalkEvent,
@@ -650,13 +651,153 @@ impl CompilerRunner {
     }
 
     fn run_diagnostics(&mut self) {
-        // Diagnostics not yet implemented as a tracked function
-        let output = "Diagnostics not yet implemented".to_string();
+        let mut output = String::new();
+        let mut output_annotated = Vec::new();
 
-        let output_annotated: Vec<_> = output
-            .lines()
-            .map(|line| (line.to_string(), LineStatus::Unknown))
-            .collect();
+        // Build a source map for error rendering (FileId -> source text)
+        let mut sources: HashMap<FileId, String> = HashMap::new();
+        for (_path, source_file) in &self.source_files {
+            let file_id = source_file.file_id(&self.db);
+            let text = source_file.text(&self.db).clone();
+            sources.insert(file_id, text);
+        }
+
+        // Sort files alphabetically
+        let mut sorted_files: Vec<_> = self.source_files.iter().collect();
+        sorted_files.sort_by_key(|(path, _)| path.as_path());
+
+        let mut total_parse_errors = 0;
+        let mut total_type_errors = 0;
+
+        // Collect parse errors
+        for (path, source_file) in &sorted_files {
+            let file_path = path.display().to_string();
+            let file_recomputed = self.modified_files.contains(*path);
+
+            let parse_errors = baml_parser::parse_errors(&self.db, **source_file);
+
+            if !parse_errors.is_empty() {
+                writeln!(output, "── Parse Errors: {file_path} ──").ok();
+                output_annotated.push((
+                    format!("── Parse Errors: {file_path} ──"),
+                    if file_recomputed {
+                        LineStatus::Recomputed
+                    } else {
+                        LineStatus::Unknown
+                    },
+                ));
+
+                for error in &parse_errors {
+                    total_parse_errors += 1;
+                    let rendered = render_parse_error(error, &sources, false);
+                    for line in rendered.lines() {
+                        writeln!(output, "{}", line).ok();
+                        output_annotated.push((
+                            line.to_string(),
+                            if file_recomputed {
+                                LineStatus::Recomputed
+                            } else {
+                                LineStatus::Cached
+                            },
+                        ));
+                    }
+                    writeln!(output).ok();
+                    output_annotated.push((String::new(), LineStatus::Unknown));
+                }
+            }
+        }
+
+        // Build typing context and collect type errors
+        let file_list: Vec<_> = self.source_files.values().copied().collect();
+        let globals = baml_db::build_typing_context_from_files(&self.db, &file_list);
+
+        for (path, source_file) in &sorted_files {
+            let file_path = path.display().to_string();
+            let file_recomputed = self.modified_files.contains(*path);
+
+            let items_struct = baml_hir::file_items(&self.db, **source_file);
+            let items = items_struct.items(&self.db);
+
+            let mut file_type_errors = Vec::new();
+
+            for item in items {
+                if let ItemId::Function(func_id) = item {
+                    let signature = function_signature(&self.db, **source_file, *func_id);
+                    let body = function_body(&self.db, **source_file, *func_id);
+                    let result = baml_thir::infer_function(
+                        &self.db,
+                        &signature,
+                        &body,
+                        Some(globals.clone()),
+                    );
+
+                    for error in &result.errors {
+                        file_type_errors.push(error.clone());
+                    }
+                }
+            }
+
+            if !file_type_errors.is_empty() {
+                writeln!(output, "── Type Errors: {file_path} ──").ok();
+                output_annotated.push((
+                    format!("── Type Errors: {file_path} ──"),
+                    if file_recomputed {
+                        LineStatus::Recomputed
+                    } else {
+                        LineStatus::Unknown
+                    },
+                ));
+
+                for error in &file_type_errors {
+                    total_type_errors += 1;
+                    let rendered = render_type_error(error, &sources, false);
+                    for line in rendered.lines() {
+                        writeln!(output, "{}", line).ok();
+                        output_annotated.push((
+                            line.to_string(),
+                            if file_recomputed {
+                                LineStatus::Recomputed
+                            } else {
+                                LineStatus::Cached
+                            },
+                        ));
+                    }
+                    writeln!(output).ok();
+                    output_annotated.push((String::new(), LineStatus::Unknown));
+                }
+            }
+        }
+
+        let total_errors = total_parse_errors + total_type_errors;
+
+        if total_errors == 0 {
+            let no_errors = "✓ No errors found".to_string();
+            writeln!(output, "{}", no_errors).ok();
+            output_annotated.push((no_errors, LineStatus::Cached));
+        } else {
+            let summary = "─────────────────────────────────────────".to_string();
+            writeln!(output, "{}", summary).ok();
+            output_annotated.push((summary, LineStatus::Unknown));
+
+            let mut parts = Vec::new();
+            if total_parse_errors > 0 {
+                parts.push(format!(
+                    "{} parse error{}",
+                    total_parse_errors,
+                    if total_parse_errors == 1 { "" } else { "s" }
+                ));
+            }
+            if total_type_errors > 0 {
+                parts.push(format!(
+                    "{} type error{}",
+                    total_type_errors,
+                    if total_type_errors == 1 { "" } else { "s" }
+                ));
+            }
+            let total = format!("Total: {}", parts.join(", "));
+            writeln!(output, "{}", total).ok();
+            output_annotated.push((total, LineStatus::Unknown));
+        }
 
         self.phase_outputs
             .insert(CompilerPhase::Diagnostics, output);
