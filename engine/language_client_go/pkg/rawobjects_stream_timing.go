@@ -1,8 +1,6 @@
 package baml
 
 import (
-	"unsafe"
-
 	"github.com/boundaryml/baml/engine/language_client_go/baml_go/raw_objects"
 	"github.com/boundaryml/baml/engine/language_client_go/pkg/cffi"
 )
@@ -11,7 +9,7 @@ type streamTiming struct {
 	*timing
 }
 
-func newStreamTiming(ptr int64, rt unsafe.Pointer) StreamTiming {
+func newStreamTiming(ptr int64, rt uintptr) StreamTiming {
 	return &streamTiming{&timing{raw_objects.FromPointer(ptr, rt)}}
 }
 

@@ -1,19 +1,15 @@
 package baml
 
-/*
-#include <stdlib.h>
-#include <stdint.h>
-*/
-import "C"
-
 import (
 	"context"
 	"math/rand"
 	"sync"
 	"unsafe"
 
+	"github.com/boundaryml/baml/engine/language_client_go/baml_go"
 	"github.com/boundaryml/baml/engine/language_client_go/baml_go/serde"
 	"github.com/boundaryml/baml/engine/language_client_go/pkg/cffi"
+	"github.com/ebitengine/purego"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -57,17 +53,29 @@ var (
 	dynamicCallbacks = make(map[uint32]CallbackData)
 	callbackMutex    sync.RWMutex
 	typeMap          serde.TypeMap
+	registerOnce     sync.Once
 )
 
 func SetTypeMap(t serde.TypeMap) {
 	typeMap = t
 }
 
-//export on_tick_callback
-func on_tick_callback(id C.uint32_t) {
+func ensureCallbacksRegistered() {
+	if baml_go.GetInitError() != nil {
+		return
+	}
+	registerOnce.Do(func() {
+		success := purego.NewCallback(trigger_callback)
+		fail := purego.NewCallback(error_callback)
+		tick := purego.NewCallback(on_tick_callback)
+
+		cffi.RegisterCallbacksFn(success, fail, tick)
+	})
+}
+
+func on_tick_callback(_ purego.CDecl, id uint32) {
 	callbackMutex.RLock()
-	id_uint := uint32(id)
-	callback, exists := dynamicCallbacks[id_uint]
+	callback, exists := dynamicCallbacks[id]
 	callbackMutex.RUnlock()
 
 	if exists {
@@ -82,55 +90,59 @@ func on_tick_callback(id C.uint32_t) {
 	}
 }
 
-//export error_callback
-func error_callback(id C.uint32_t, isDone C.int, content *C.int8_t, length C.int) {
+func error_callback(_ purego.CDecl, id uint32, isDone int32, content *byte, length uintptr) {
 	callbackMutex.RLock()
-	id_uint := uint32(id)
-	callback, exists := dynamicCallbacks[id_uint]
+	callback, exists := dynamicCallbacks[id]
 	callbackMutex.RUnlock()
 
 	if exists {
-		content_bytes := C.GoBytes(unsafe.Pointer(content), length)
+		// Copy content
+		contentBytes := make([]byte, length)
+		if length > 0 {
+			src := unsafe.Slice(content, length)
+			copy(contentBytes, src)
+		}
 
 		// Parse the content as a string
-		content_str := string(content_bytes)
+		content_str := string(contentBytes)
 
 		// Send the error to the callback
 		if content_str == "AbortError" {
 			// Special handling for AbortError
 			callback.channel <- ResultCallback{Error: callback.ctx.Err()}
 		} else {
-			// TODO: cast to the right error type
 			err := BamlError{Message: content_str}
 			callback.channel <- ResultCallback{Error: err}
 		}
 
-
 		close(callback.channel)
 		callbackMutex.Lock()
 		defer callbackMutex.Unlock()
-		delete(dynamicCallbacks, id_uint)
+		delete(dynamicCallbacks, id)
 	}
 }
 
-//export trigger_callback
-func trigger_callback(id C.uint32_t, isDone C.int, content *C.int8_t, length C.int) {
+func trigger_callback(_ purego.CDecl, id uint32, isDone int32, content *byte, length uintptr) {
 	callbackMutex.RLock()
-	id_uint := uint32(id)
-	callback, exists := dynamicCallbacks[id_uint]
+	callback, exists := dynamicCallbacks[id]
 	callbackMutex.RUnlock()
 
 	if exists {
-		content_bytes := C.GoBytes(unsafe.Pointer(content), length)
+		// Copy content
+		contentBytes := make([]byte, length)
+		if length > 0 {
+			src := unsafe.Slice(content, length)
+			copy(contentBytes, src)
+		}
 
 		var content_holder cffi.CFFIValueHolder
-		err := proto.Unmarshal(content_bytes, &content_holder)
+		err := proto.Unmarshal(contentBytes, &content_holder)
 		if err != nil {
 			callback.channel <- ResultCallback{Error: err}
 			close(callback.channel)
 			callbackMutex.Lock()
 			defer callbackMutex.Unlock()
-			delete(dynamicCallbacks, id_uint)
+			delete(dynamicCallbacks, id)
 			return
 		}
 
@@ -148,12 +160,13 @@ func trigger_callback(id C.uint32_t, isDone C.int, content *C.int8_t, length C.i
 			close(callback.channel)
 			callbackMutex.Lock()
 			defer callbackMutex.Unlock()
-			delete(dynamicCallbacks, id_uint)
+			delete(dynamicCallbacks, id)
 		}
 	}
 }
 
 func create_unique_id(ctx context.Context, onTick OnTickCallbackData) (uint32, chan ResultCallback) {
+	ensureCallbacksRegistered()
 	callbackMutex.Lock()
 	defer callbackMutex.Unlock()
 	id := uint32(rand.Intn(1000000))

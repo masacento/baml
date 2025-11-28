@@ -2,7 +2,6 @@ package baml
 
 import (
 	"fmt"
-	"unsafe"
 
 	"github.com/boundaryml/baml/engine/language_client_go/baml_go/raw_objects"
 	"github.com/boundaryml/baml/engine/language_client_go/pkg/cffi"
@@ -17,7 +16,7 @@ func (tb *typeBuilder) ObjectType() cffi.CFFIObjectType {
 	return cffi.CFFIObjectType_OBJECT_TYPE_BUILDER
 }
 
-func newTypeBuilder(ptr int64, rt unsafe.Pointer) TypeBuilder {
+func newTypeBuilder(ptr int64, rt uintptr) TypeBuilder {
 	return &typeBuilder{raw_objects.FromPointer(ptr, rt)}
 }
 

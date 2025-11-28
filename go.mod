@@ -3,6 +3,7 @@ module github.com/boundaryml/baml
 go 1.24.0
 
 require (
+	github.com/ebitengine/purego v0.10.0-alpha.3
 	github.com/ghetzel/testify v1.4.1
 	google.golang.org/protobuf v1.36.6
 )

@@ -2,7 +2,6 @@ package baml
 
 import (
 	"fmt"
-	"unsafe"
 
 	"github.com/boundaryml/baml/engine/language_client_go/baml_go/raw_objects"
 	"github.com/boundaryml/baml/engine/language_client_go/pkg/cffi"
@@ -12,7 +11,7 @@ type usage struct {
 	*raw_objects.RawObject
 }
 
-func newUsage(ptr int64, rt unsafe.Pointer) Usage {
+func newUsage(ptr int64, rt uintptr) Usage {
 	return &usage{raw_objects.FromPointer(ptr, rt)}
 }
 

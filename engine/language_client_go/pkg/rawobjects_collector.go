@@ -2,7 +2,6 @@ package baml
 
 import (
 	"fmt"
-	"unsafe"
 
 	"github.com/boundaryml/baml/engine/language_client_go/baml_go/raw_objects"
 	"github.com/boundaryml/baml/engine/language_client_go/pkg/cffi"
@@ -12,7 +11,7 @@ type collector struct {
 	*raw_objects.RawObject
 }
 
-func newCollector(ptr int64, rt unsafe.Pointer) Collector {
+func newCollector(ptr int64, rt uintptr) Collector {
 	return &collector{raw_objects.FromPointer(ptr, rt)}
 }
 

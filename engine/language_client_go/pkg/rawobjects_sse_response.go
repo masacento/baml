@@ -2,7 +2,6 @@ package baml
 
 import (
 	"fmt"
-	"unsafe"
 
 	"github.com/boundaryml/baml/engine/language_client_go/baml_go/raw_objects"
 	"github.com/boundaryml/baml/engine/language_client_go/pkg/cffi"
@@ -12,7 +11,7 @@ type sseResponse struct {
 	*raw_objects.RawObject
 }
 
-func newSSEResponse(ptr int64, rt unsafe.Pointer) SSEResponse {
+func newSSEResponse(ptr int64, rt uintptr) SSEResponse {
 	return &sseResponse{raw_objects.FromPointer(ptr, rt)}
 }
 

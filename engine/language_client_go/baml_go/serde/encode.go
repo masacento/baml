@@ -43,8 +43,8 @@ func EncodeClass(nameEncoder func() *cffi.CFFITypeName, fields map[string]any, d
 	name := nameEncoder()
 
 	class := cffi.CFFIValueClass{
-		Name:          name,
-		Fields:        staticFields,
+		Name:   name,
+		Fields: staticFields,
 	}
 
 	return &cffi.CFFIValueHolder{
@@ -92,7 +92,7 @@ func EncodeUnion(nameEncoder func() *cffi.CFFITypeName, variantName string, valu
 // encodeValue is the core recursive helper for Encode
 // It takes a Go value, encodes it using the builder, and returns
 func encodeValue(value any) (*cffi.CFFIValueHolder, error) {
-	value_type, err := encodeFieldType(reflect.TypeOf(value),)
+	value_type, err := encodeFieldType(reflect.TypeOf(value))
 	if err != nil {
 		return nil, err
 	}

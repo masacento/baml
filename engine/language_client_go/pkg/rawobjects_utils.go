@@ -2,13 +2,12 @@ package baml
 
 import (
 	"fmt"
-	"unsafe"
 
 	"github.com/boundaryml/baml/engine/language_client_go/baml_go/raw_objects"
 	"github.com/boundaryml/baml/engine/language_client_go/pkg/cffi"
 )
 
-func decodeRawObjectImpl(rt unsafe.Pointer, cRaw *cffi.CFFIRawObject) (raw_objects.RawPointer, error) {
+func decodeRawObjectImpl(rt uintptr, cRaw *cffi.CFFIRawObject) (raw_objects.RawPointer, error) {
 	if cRaw == nil {
 		return nil, fmt.Errorf("nil raw object")
 	}

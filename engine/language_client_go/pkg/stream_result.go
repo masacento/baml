@@ -25,3 +25,4 @@ func (result *StreamResult[Partial, Final]) IsPartial() bool {
 func (result *StreamResult[Partial, Final]) Error() error {
 	return result.error
 }
+

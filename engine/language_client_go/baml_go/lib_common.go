@@ -19,17 +19,10 @@ import (
 	"sync"
 	"time"
 	"unsafe"
-)
 
-/*
-#cgo CFLAGS: -I${SRCDIR}
-#cgo CFLAGS: -O3 -g
-#include <baml_cffi_wrapper.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdint.h>
-*/
-import "C"
+	"github.com/boundaryml/baml/engine/language_client_go/pkg/cffi"
+	"github.com/ebitengine/purego"
+)
 
 const (
 	VERSION            = "0.214.0"
@@ -90,12 +83,12 @@ var (
 	bamlSharedLibraryPath = ""
 	initErr               error
 	initOnce              sync.Once
-	bamlLibHandle         unsafe.Pointer
+	bamlLibHandle         uintptr
 	logger                *slog.Logger
 )
 
 func SetSharedLibraryPath(path string) {
-	if bamlLibHandle != nil {
+	if bamlLibHandle != 0 {
 		logger.Warn("SetSharedLibraryPath called after BAML library was initialized. Path ignored.", "path", path)
 		return
 	}
@@ -140,19 +133,14 @@ func initializeBaml() error {
 		return errMsg
 	}
 
-	// Platform-specific initialization
-	if err := platformInit(); err != nil {
-		return fmt.Errorf("%w: %w", ErrInitialization, err)
-	}
-
 	logger.Debug("Loading BAML library", "path", bamlSharedLibraryPath)
 	handle, err := loadLibrary(bamlSharedLibraryPath)
 	if err != nil {
 		// Enhanced error messages for common issues
 		errStr := err.Error()
 		if strings.Contains(errStr, "wrong architecture") ||
-		   strings.Contains(errStr, "wrong ELF class") ||
-		   strings.Contains(errStr, "is not a valid Win32 application") {
+			strings.Contains(errStr, "wrong ELF class") ||
+			strings.Contains(errStr, "is not a valid Win32 application") {
 			err = fmt.Errorf("%w (possible architecture mismatch)", err)
 		}
 		return fmt.Errorf("%w: %w", ErrLoadLibrary, err)
@@ -163,15 +151,16 @@ func initializeBaml() error {
 	lib := library{handle: bamlLibHandle}
 	if err := lib.registerFunctions(); err != nil {
 		closeLibrary(bamlLibHandle)
-		bamlLibHandle = nil
+		bamlLibHandle = 0
 		return fmt.Errorf("%w: %w", ErrLoadLibrary, err)
 	}
 
+	// Verify version
 	goVersionStr := BamlVersion()
 
 	if goVersionStr != VERSION {
 		closeLibrary(bamlLibHandle)
-		bamlLibHandle = nil
+		bamlLibHandle = 0
 		err := fmt.Errorf("%w: Go package expects %s, but loaded library %s reports %s",
 			ErrVersionMismatch, VERSION, bamlSharedLibraryPath, goVersionStr)
 		return err
@@ -182,7 +171,60 @@ func initializeBaml() error {
 	return nil
 }
 
-type library struct{ handle unsafe.Pointer }
+func BamlVersion() string {
+	versionPtr := cffi.VersionFn()
+	return CStringToGoString(versionPtr)
+}
+
+// InvokeRuntimeCLI invokes the runtime CLI with the given arguments.
+// args should include the binary name as the first argument (standard argv convention),
+// or at least be what the runtime expects.
+// This converts []string to char** and calls the C function.
+func InvokeRuntimeCLI(args []string) int32 {
+	// Convert []string to []*byte (C string pointers)
+	cArgs := make([]*byte, len(args)+1) // +1 for null terminator at the end of array
+	for i, arg := range args {
+		// We need to ensure the string is null-terminated and we pass its pointer.
+		// purego doesn't automatically null-terminate for us if we pass []byte,
+		// but for *byte it expects a C string.
+		// We can create a Go byte slice with null terminator and get pointer to element 0.
+		argBytes := append([]byte(arg), 0)
+		cArgs[i] = &argBytes[0]
+		// Keep alive is important if we were doing this unsafely,
+		// but here we are holding references in cArgs slice.
+		// purego call below will use them.
+		// Ideally we should use runtime.KeepAlive on the bytes.
+	}
+	cArgs[len(args)] = nil // Null terminate the array of pointers
+
+	// We need a pointer to the first element of cArgs
+	// cArgs is []*byte. &cArgs[0] is **byte.
+	ptr := &cArgs[0]
+
+	// We need to make sure cArgs doesn't get collected during the call
+	defer runtime.KeepAlive(cArgs)
+
+	return cffi.InvokeRuntimeCliFn(uintptr(unsafe.Pointer(ptr)))
+}
+
+func CStringToGoString(ptr *byte) string {
+	if ptr == nil {
+		return ""
+	}
+	// Scan for null terminator
+	var length int
+	for {
+		p := unsafe.Pointer(uintptr(unsafe.Pointer(ptr)) + uintptr(length))
+		val := *(*byte)(p)
+		if val == 0 {
+			break
+		}
+		length++
+	}
+	return string(unsafe.Slice(ptr, length))
+}
+
+type library struct{ handle uintptr }
 
 func (l *library) registerFunctions() error {
 	var symbolLookupErr error
@@ -192,54 +234,21 @@ func (l *library) registerFunctions() error {
 				symbolLookupErr = fmt.Errorf("panic during symbol lookup: %v", r)
 			}
 		}()
-		l.registerFn("version")
-		l.registerFn("create_baml_runtime")
-		l.registerFn("destroy_baml_runtime")
-		l.registerFn("invoke_runtime_cli")
-		l.registerFn("register_callbacks")
-		l.registerFn("call_function_from_c")
-		l.registerFn("call_function_stream_from_c")
-		l.registerFn("call_function_parse_from_c")
-		l.registerFn("cancel_function_call")
-		l.registerFn("call_object_constructor")
-		l.registerFn("call_object_method")
+
+		purego.RegisterLibFunc(&cffi.VersionFn, l.handle, "version")
+		purego.RegisterLibFunc(&cffi.CreateBamlRuntimeFn, l.handle, "create_baml_runtime")
+		purego.RegisterLibFunc(&cffi.DestroyBamlRuntimeFn, l.handle, "destroy_baml_runtime")
+		purego.RegisterLibFunc(&cffi.InvokeRuntimeCliFn, l.handle, "invoke_runtime_cli")
+		purego.RegisterLibFunc(&cffi.RegisterCallbacksFn, l.handle, "register_callbacks")
+		purego.RegisterLibFunc(&cffi.CallFunctionFromCFn, l.handle, "call_function_from_c")
+		purego.RegisterLibFunc(&cffi.CallFunctionStreamFromCFn, l.handle, "call_function_stream_from_c")
+		purego.RegisterLibFunc(&cffi.CallFunctionParseFromCFn, l.handle, "call_function_parse_from_c")
+		purego.RegisterLibFunc(&cffi.CancelFunctionCallFn, l.handle, "cancel_function_call")
+		purego.RegisterLibFunc(&cffi.CallObjectConstructorFn, l.handle, "call_object_constructor")
+		purego.RegisterLibFunc(&cffi.CallObjectMethodFn, l.handle, "call_object_method")
+		purego.RegisterLibFunc(&cffi.FreeBufferFn, l.handle, "free_buffer")
 	}()
 	return symbolLookupErr
-}
-
-func (l *library) registerFn(fnName string) error {
-	fnPtr, err := getSymbol(l.handle, fnName)
-	if err != nil {
-		return err
-	}
-
-	switch fnName {
-	case "version":
-		C.SetVersionFn(fnPtr)
-	case "create_baml_runtime":
-		C.SetCreateBamlRuntimeFn(fnPtr)
-	case "destroy_baml_runtime":
-		C.SetDestroyBamlRuntimeFn(fnPtr)
-	case "invoke_runtime_cli":
-		C.SetInvokeRuntimeCliFn(fnPtr)
-	case "register_callbacks":
-		C.SetRegisterCallbacksFn(fnPtr)
-	case "call_function_from_c":
-		C.SetCallFunctionFromCFn(fnPtr)
-	case "call_function_stream_from_c":
-		C.SetCallFunctionStreamFromCFn(fnPtr)
-	case "call_function_parse_from_c":
-		C.SetCallFunctionParseFromCFn(fnPtr)
-	case "cancel_function_call":
-		C.SetCancelFunctionCallFn(fnPtr)
-	case "call_object_constructor":
-		C.SetCallObjectConstructorFn(fnPtr)
-	case "call_object_method":
-		C.SetCallObjectMethodFunctionFn(fnPtr)
-	default:
-		panic(fmt.Sprintf("internal error: attempted to register unknown function '%s'", fnName))
-	}
-	return nil
 }
 
 func findOrDownloadLibrary() error {

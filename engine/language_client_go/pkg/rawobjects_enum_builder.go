@@ -2,7 +2,6 @@ package baml
 
 import (
 	"fmt"
-	"unsafe"
 
 	"github.com/boundaryml/baml/engine/language_client_go/baml_go/raw_objects"
 	"github.com/boundaryml/baml/engine/language_client_go/pkg/cffi"
@@ -18,7 +17,7 @@ func (eb *enumBuilder) ObjectType() cffi.CFFIObjectType {
 	return cffi.CFFIObjectType_OBJECT_ENUM_BUILDER
 }
 
-func newEnumBuilder(ptr int64, rt unsafe.Pointer) EnumBuilder {
+func newEnumBuilder(ptr int64, rt uintptr) EnumBuilder {
 	bldr := enumBuilder{raw_objects.FromPointer(ptr, rt), llmRenderableObject{}}
 	bldr.llmRenderableObject = llmRenderableObject{&bldr}
 	return &bldr

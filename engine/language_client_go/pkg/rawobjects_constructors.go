@@ -8,7 +8,7 @@ import (
 	"github.com/boundaryml/baml/engine/language_client_go/pkg/cffi"
 )
 
-/// Construct Collector
+// / Construct Collector
 func (r *BamlRuntime) NewCollector(name string) (Collector, error) {
 	kwargs, err := serde.EncodeMapEntries(map[string]any{
 		"name": name,
@@ -29,7 +29,6 @@ func (r *BamlRuntime) NewCollector(name string) (Collector, error) {
 
 	return as_collector, nil
 }
-
 
 func (r *BamlRuntime) newMediaFromUrl(mediaType MediaType, url string, mimeType *string) (media, error) {
 	kwargs, err := serde.EncodeMapEntries(map[string]any{

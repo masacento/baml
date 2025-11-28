@@ -326,7 +326,7 @@ func convertFieldTypeToGoType(fieldType *cffi.CFFIFieldTypeHolder, typeMap TypeM
 		if !ok {
 			// going to be a dynamic enum
 			return reflect.TypeOf(DynamicEnum{
-				Name: name,
+				Name:  name,
 				Value: "",
 			})
 		}
@@ -523,7 +523,7 @@ func DecodeChecked[T any](holder *cffi.CFFIValueHolder, decodeFunc func(inner *c
 			}
 		}
 		return shared.Checked[T]{
-			Value: decodeFunc(checkedVal.CheckedValue.Value),
+			Value:  decodeFunc(checkedVal.CheckedValue.Value),
 			Checks: checks,
 		}
 	}
@@ -533,7 +533,7 @@ func DecodeChecked[T any](holder *cffi.CFFIValueHolder, decodeFunc func(inner *c
 func CastChecked[T any](value any, castFunc func(inner any) T) shared.Checked[T] {
 	checked := value.(shared.Checked[any])
 	return shared.Checked[T]{
-		Value: castFunc(checked.Value),
+		Value:  castFunc(checked.Value),
 		Checks: checked.Checks,
 	}
 }

@@ -2,7 +2,6 @@ package baml
 
 import (
 	"fmt"
-	"unsafe"
 
 	"github.com/boundaryml/baml/engine/language_client_go/baml_go/raw_objects"
 	"github.com/boundaryml/baml/engine/language_client_go/pkg/cffi"
@@ -208,7 +207,7 @@ func (m *mediaHolder) AsBase64() (*string, error) {
 	return &as_base64, nil
 }
 
-func newMedia(ptr int64, rt unsafe.Pointer, mediaType MediaType) media {
+func newMedia(ptr int64, rt uintptr, mediaType MediaType) media {
 	media := mediaHolder{raw_objects.FromPointer(ptr, rt), mediaType}
 	switch mediaType {
 	case MediaType_Image:

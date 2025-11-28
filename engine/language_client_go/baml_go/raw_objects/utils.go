@@ -1,5 +1,3 @@
-//go:build cgo
-
 package raw_objects
 
 import (
@@ -13,32 +11,23 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-/*
-#cgo CFLAGS: -I${SRCDIR}/..
-#cgo CFLAGS: -O3 -g
-#include <../baml_cffi_wrapper.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <string.h>
-*/
-import "C"
+// Changing unsafe.Pointer to uintptr for purego compatibility
+var _decodeRawObjectImpl func(rt uintptr, cRaw *cffi.CFFIRawObject) (RawPointer, error)
 
-var _decodeRawObjectImpl func(rt unsafe.Pointer, cRaw *cffi.CFFIRawObject) (RawPointer, error)
-
-func SetDecodeRawObjectImpl(impl func(rt unsafe.Pointer, cRaw *cffi.CFFIRawObject) (RawPointer, error)) {
+func SetDecodeRawObjectImpl(impl func(rt uintptr, cRaw *cffi.CFFIRawObject) (RawPointer, error)) {
 	_decodeRawObjectImpl = impl
 }
 
 type RawPointer interface {
 	ObjectType() cffi.CFFIObjectType
 	pointer() int64
-	Runtime() unsafe.Pointer
+	Runtime() uintptr
 }
 
 type RawObject struct {
-	ptr int64     // pointer to the raw object in C
-	baml_runtime unsafe.Pointer
-	_   [0]func() // prevents copying
+	ptr          int64 // pointer to the raw object in C
+	baml_runtime uintptr
+	_            [0]func() // prevents copying
 }
 
 func (r *RawObject) Pointer() int64 {
@@ -49,16 +38,16 @@ func (r *RawObject) pointer() int64 {
 	return r.ptr
 }
 
-func (r *RawObject) Runtime() unsafe.Pointer {
+func (r *RawObject) Runtime() uintptr {
 	return r.baml_runtime
 }
 
-func FromPointer(ptr int64, rt unsafe.Pointer) *RawObject {
+func FromPointer(ptr int64, rt uintptr) *RawObject {
 	return &RawObject{ptr: ptr, baml_runtime: rt}
 }
 
 // newRawObject creates a new refcounted rawObject
-func NewRawObject(rt unsafe.Pointer, objectType cffi.CFFIObjectType, kwargs []*cffi.CFFIMapEntry) (any, error) {
+func NewRawObject(rt uintptr, objectType cffi.CFFIObjectType, kwargs []*cffi.CFFIMapEntry) (any, error) {
 	args := cffi.CFFIObjectConstructorArgs{
 		Type:   objectType,
 		Kwargs: kwargs,
@@ -68,22 +57,23 @@ func NewRawObject(rt unsafe.Pointer, objectType cffi.CFFIObjectType, kwargs []*c
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal object constructor arguments: %w", err)
 	}
-	cEncodedArgs := (*C.char)(unsafe.Pointer(&encodedArgs[0]))
 
-	cBuf := C.WrapCallObjectConstructor(cEncodedArgs, C.uintptr_t(len(encodedArgs)))
-
-	content_bytes := C.GoBytes(unsafe.Pointer(cBuf.ptr), C.int32_t(cBuf.len))
-	C.WrapFreeBuffer(cBuf) // Free the buffer after use
-
-	if cBuf.len == 0 {
-		return nil, fmt.Errorf("failed to call object constructor")
+	var argsPtr *byte
+	if len(encodedArgs) > 0 {
+		argsPtr = &encodedArgs[0]
 	}
-	if cBuf.ptr == nil {
+
+	buf := cffi.CallObjectConstructorFn(argsPtr, uintptr(len(encodedArgs)))
+	defer cffi.FreeBufferFn(buf)
+
+	if buf.Ptr == 0 {
 		return nil, fmt.Errorf("object constructor returned nil pointer")
 	}
 
+	contentBytes := unsafe.Slice((*byte)(unsafe.Pointer(buf.Ptr)), buf.Len)
+
 	var content_holder cffi.CFFIObjectResponse
-	err = proto.Unmarshal(content_bytes, &content_holder)
+	err = proto.Unmarshal(contentBytes, &content_holder)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal content bytes: %w", err)
 	}
@@ -124,21 +114,23 @@ func CallMethod(object RawPointer, method_name string, kwargs map[string]any) (a
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal object method arguments: %w", err)
 	}
-	cEncodedArgs := (*C.char)(unsafe.Pointer(&encodedArgs[0]))
 
-	cBuf := C.WrapCallObjectMethodFunction(object.Runtime(), cEncodedArgs, C.uintptr_t(len(encodedArgs)))
-
-	content_bytes := C.GoBytes(unsafe.Pointer(cBuf.ptr), C.int32_t(cBuf.len))
-	C.WrapFreeBuffer(cBuf) // Free the buffer after use
-	if cBuf.len == 0 {
-		return nil, fmt.Errorf("failed to call object method function")
+	var argsPtr *byte
+	if len(encodedArgs) > 0 {
+		argsPtr = &encodedArgs[0]
 	}
-	if cBuf.ptr == nil {
+
+	buf := cffi.CallObjectMethodFn(object.Runtime(), argsPtr, uintptr(len(encodedArgs)))
+	defer cffi.FreeBufferFn(buf)
+
+	if buf.Ptr == 0 {
 		return nil, fmt.Errorf("object method function returned nil pointer")
 	}
 
+	contentBytes := unsafe.Slice((*byte)(unsafe.Pointer(buf.Ptr)), buf.Len)
+
 	var content_holder cffi.CFFIObjectResponse
-	err = proto.Unmarshal(content_bytes, &content_holder)
+	err = proto.Unmarshal(contentBytes, &content_holder)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal content bytes: %w", err)
 	}
@@ -151,7 +143,7 @@ func CallMethod(object RawPointer, method_name string, kwargs map[string]any) (a
 	return parsed, nil
 }
 
-func decodeObjectResponse(rt unsafe.Pointer, response *cffi.CFFIObjectResponse) (any, error) {
+func decodeObjectResponse(rt uintptr, response *cffi.CFFIObjectResponse) (any, error) {
 	if response == nil {
 		return nil, fmt.Errorf("nil response")
 	}
@@ -189,7 +181,7 @@ func decodeObjectResponse(rt unsafe.Pointer, response *cffi.CFFIObjectResponse) 
 	}
 }
 
-func decodeRawObject(rt unsafe.Pointer, cRaw *cffi.CFFIRawObject) (RawPointer, error) {
+func decodeRawObject(rt uintptr, cRaw *cffi.CFFIRawObject) (RawPointer, error) {
 	if _decodeRawObjectImpl == nil {
 		return nil, fmt.Errorf("decodeRawObjectImpl is not set. Please call SetDecodeRawObjectImpl() before using this function")
 	}
